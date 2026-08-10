@@ -11,6 +11,22 @@ CATEGORIES = ["업무", "개인", "기타"]
 CATEGORY_COLORS = {"업무": "#4f6df5", "개인": "#16a34a", "기타": "#d97706"}
 ACCENT = "#4f6df5"
 
+# 사용자가 카테고리를 직접 선택하기 전까지, 입력 텍스트의 키워드로 카테고리를 자동 추정
+CATEGORY_KEYWORDS = {
+    "업무": ["회의", "미팅", "보고서", "발표", "업무", "프로젝트", "메일", "이메일", "출근", "퇴근", "회사", "계약", "클라이언트", "결재", "문서", "기획", "마감", "거래처", "팀장", "상사", "출장"],
+    "개인": ["운동", "헬스", "병원", "가족", "친구", "생일", "여행", "쇼핑", "취미", "독서", "영화", "데이트", "다이어트", "약속", "산책", "청소", "빨래", "요리", "부모님"],
+}
+
+
+def classify_category(text):
+    trimmed = text.strip()
+    if not trimmed:
+        return None
+    for cat in ("업무", "개인"):
+        if any(keyword in trimmed for keyword in CATEGORY_KEYWORDS[cat]):
+            return cat
+    return None
+
 st.set_page_config(page_title="할 일 관리", page_icon="📝", layout="centered")
 
 st.markdown(
@@ -130,6 +146,12 @@ if "current_filter" not in st.session_state:
     st.session_state.current_filter = "전체"
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
+if "new_todo_text" not in st.session_state:
+    st.session_state.new_todo_text = ""
+if "new_todo_category" not in st.session_state:
+    st.session_state.new_todo_category = "기타"
+if "category_manual" not in st.session_state:
+    st.session_state.category_manual = False
 
 todos = st.session_state.todos
 
@@ -163,22 +185,48 @@ with st.container():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # 입력 영역
-with st.form("add_form", clear_on_submit=True):
-    col1, col2, col3 = st.columns([5, 2, 1.4])
-    with col1:
-        new_text = st.text_input(
-            "todo_input", placeholder="할 일을 입력하세요", max_chars=200, label_visibility="collapsed"
-        )
-    with col2:
-        new_category = st.selectbox("category_input", CATEGORIES, index=2, label_visibility="collapsed")
-    with col3:
-        submitted = st.form_submit_button("추가", use_container_width=True)
-    if submitted:
-        if not new_text.strip():
-            st.warning("할 일을 입력해주세요.")
-        else:
-            add_todo(new_text, new_category)
-            st.rerun()
+if st.session_state.pop("_reset_add_form", False):
+    st.session_state["new_todo_text"] = ""
+    st.session_state["new_todo_category"] = "기타"
+    st.session_state["category_manual"] = False
+
+if not st.session_state.get("category_manual", False):
+    detected = classify_category(st.session_state.get("new_todo_text", ""))
+    if detected:
+        st.session_state["new_todo_category"] = detected
+
+
+def _mark_category_manual():
+    st.session_state["category_manual"] = True
+
+
+col1, col2, col3 = st.columns([5, 2, 1.4])
+with col1:
+    st.text_input(
+        "todo_input", placeholder="할 일을 입력하세요", max_chars=200, label_visibility="collapsed", key="new_todo_text"
+    )
+with col2:
+    st.selectbox(
+        "category_input",
+        CATEGORIES,
+        label_visibility="collapsed",
+        key="new_todo_category",
+        on_change=_mark_category_manual,
+    )
+with col3:
+    add_clicked = st.button("추가", use_container_width=True)
+
+if not st.session_state.get("category_manual", False) and detected:
+    st.caption(f'🤖 "{detected}"로 자동 분류됨 (직접 선택 시 해제)')
+
+if add_clicked:
+    text_value = st.session_state.get("new_todo_text", "")
+    if not text_value.strip():
+        st.warning("할 일을 입력해주세요.")
+    else:
+        add_todo(text_value, st.session_state.get("new_todo_category", "기타"))
+        st.session_state["_reset_add_form"] = True
+        st.rerun()
 
 # 필터 탭
 filter_cols = st.columns(len(["전체"] + CATEGORIES))
